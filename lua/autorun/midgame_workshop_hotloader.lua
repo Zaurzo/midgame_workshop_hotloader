@@ -74,10 +74,10 @@ do
                     return
                 end
 
-                Log(greenc, '[WSHL] Fetched and started hotload for addon "' .. wsid .. '" ...\n')
+                --Log(greenc, '[WSHL] Fetched and started hotload for addon "' .. wsid .. '" ...\n')
 
                 steamworks.DownloadUGC(wsid, function(_path, _file)
-                    Log(svblue, '[WSHL] Looking for addon requirements, give me a couple seconds...\n')
+                    --Log(svblue, '[WSHL] Looking for addon requirements, give me a couple seconds...\n')
 
                     steamworks.GetRequiredAddons(wsid, nil, function(requiredAddons)
                         local count = table.Count(requiredAddons)
@@ -141,7 +141,7 @@ do
                             unmounted[title] = nil
                             mounted[title] = true
 
-                            print(title)
+                            --print(title)
     
                             break
                         end
