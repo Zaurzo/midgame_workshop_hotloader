@@ -432,12 +432,12 @@ end
 do
     local sendList = {}
 
-    -- I've added the abillity to make it auto-hotload requirements (and requirements of requirements) to the hotloader.
-    -- I only made it download the requirements and then initialize them one by one, however some addons require
-    -- requirements to load before it, if not, it will error. My solution is to combine every lua file of all the
-    -- requirements and the main addon together and create a file bundle, and initialize them in the
-    -- same way Garry's Mod does. Some addons will have a lot of files, making it unable to send it all in one
-    -- net message. So I send the list in chunks (using Xalalau's way, thank you) to combat that issue.
+    -- I've added the ability to make it auto-hotload addon requirements (and requirements of requirements) to the hotloader.
+    -- My first thought was to make it download the requirements and then initialize them one by one, however some addons require
+    -- requirements to load before it. And if they are loaded after, it will error. My solution is to combine every lua file of the
+    -- requirements and the main addon together and create a file bundle, and initialize them in the same way Garry's Mod does. 
+    -- Some addons will have a lot of files making it unable to send it all in one net message, so I send the list in chunks 
+    -- (using Xalalau's way, thank you) to combat that issue.
     
     if SERVER then
         local bundleLoads = {}
@@ -570,7 +570,7 @@ do
                     LoadScripted('effects', bundle)
                     HandleHooks()
 
-                    PrintTable(bundle)
+                    --PrintTable(bundle)
 
                     timer.Simple(0.5, ReloadSpawnMenu)
                 end)
