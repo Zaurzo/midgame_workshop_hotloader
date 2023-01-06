@@ -241,7 +241,7 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
                         if retval then
                             baseclass.Set(classname, retval)
                         elseif classtable.GetStored then
-                            baseclass.Set(classname, classtable.GetStored(classname))
+                            baseclass.Set(classname, CLASS)
                         end
                     end)
                 end
