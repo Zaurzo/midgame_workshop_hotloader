@@ -13,7 +13,8 @@ do
     local icon_Color = Color(205, 92, 92, 255)
     local tick = Material('materials/wshl/tick.png')
 
-    local hotloaded = {}
+    local hotloadedList = {}
+    local doMultiSelect = false
 
     local function AddWorkshopTab()
         local control = vgui.Create('SpawnmenuContentPanel')
@@ -49,7 +50,7 @@ do
             for k, addon in ipairs(unmountedAddonsList) do
                 local wsid = addon.wsid
 
-                if hotloaded[wsid] or self.ListPanel.Addons[wsid] then continue end
+                if hotloadedList[wsid] or self.ListPanel.Addons[wsid] then continue end
 
                 local iconMat = 'data/midgame_workshop_hotloader/' .. wsid .. '/icon.png'
                 local author = spawnmenu_control.GetAddonAuthorName(wsid)
@@ -82,7 +83,7 @@ do
                     wsid = wsid,
                     material = iconMat,
                     mode = 'unmounted',
-                    author = author,
+                    author = author or '<could not fetch>',
                 })
 
                 self.ListPanel.Addons[wsid] = true
@@ -133,9 +134,16 @@ do
         icon.DoClick = function(self)
             surface.PlaySound('ui/buttonclickrelease.wav')
 
-            if self.ws_MultiSelect then
+            if doMultiSelect then
                 self.Image.ws_Ticked = not self.Image.ws_Ticked
             else
+                net.Start('wshl_broadcast_ugc')
+                net.WriteString(self.wsid)
+                net.SendToServer()
+
+                hotloadedList[self.wsid] = true
+
+                self:Remove()
             end
         end
 
@@ -145,6 +153,50 @@ do
             menu:AddOption('Copy Addon Title', function()
                 SetClipboardText(self:GetSpawnName())
             end):SetIcon('icon16/page_copy.png')
+
+            menu:AddOption('Multi-Select', function()
+                local state = not doMultiSelect
+                doMultiSelect = state
+
+                if not state then
+                    local addonContentIcons = container:GetChildren()[1]:GetChildren()[1]:GetChildren()
+
+                    for i = 1, #addonContentIcons do
+                        local contenticon = addonContentIcons[i]
+
+                        if IsValid(contenticon) then
+                            contenticon.Image.ws_Ticked = false
+                        end
+                    end
+                end
+            end)
+
+            if doMultiSelect then
+                menu:AddOption('Hotload Selected', function()
+                    local addonContentIcons = container:GetChildren()[1]:GetChildren()[1]:GetChildren()
+                    local wsids = {}
+    
+                    for i = 1, #addonContentIcons do
+                        local contenticon = addonContentIcons[i]
+
+                        if IsValid(contenticon) and contenticon.Image.ws_Ticked then
+                            wsids[#wsids + 1] = contenticon.wsid
+                            hotloadedList[contenticon.wsid] = true
+                            contenticon:Remove()
+                        end
+                    end
+
+                    -- More than 50 addons at a time is absurd
+                    if #wsids > 50 or #wsids <= 0 then
+                        return
+                    end
+                    
+                    net.Start('wshl_broadcast_ugc')
+                    net.WriteString('n')
+                    net.WriteTable(wsids)
+                    net.SendToServer()
+                end)
+            end
 
             menu:Open()
         end
@@ -166,8 +218,12 @@ do
 
     hook.Add('PopulateWorkshopSpawnmenu', 'PopulateWorkshopSpawnmenu', PopulateWorkshopSpawnmenu)
 
-    spawnmenu.AddCreationTab('Workshop', AddWorkshopTab, 'icon16/cog.png', 1000, 'Workshop Hotload Control (What\'s Hot, Unmounted Addons, Hotloaded Addons)')
     spawnmenu.AddContentType('workshop_addon', WorkshopAddon_Constructor)
+    spawnmenu.AddCreationTab('Workshop', AddWorkshopTab, 'icon16/cog.png', 1000, 'Workshop Hotload Control (What\'s Hot, Unmounted Addons, Hotloaded Addons)')
+
+    timer.Simple(1, function()
+        RunConsoleCommand('spawnmenu_reload')
+    end)
 end
 
 do
