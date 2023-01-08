@@ -111,14 +111,16 @@ do
         end
 
         _G.AddCSLuaFile = function(path)
-            if path then
-                local absolute = GetAbsolutePath(path)
+            if not path then
+                path = string.sub(debug.getinfo(2, 'S').source, 2)
+            end
 
-                if file.Read(absolute, 'LUA') then
-                    return AddCSLuaFile(absolute)
-                else
-                    MsgC(warning, '[WSHL] Attempt to AddCSLua non-existant file (' .. path ..')\n')
-                end
+            local absolute = GetAbsolutePath(path)
+
+            if file.Read(absolute, 'LUA') then
+                return AddCSLuaFile(absolute)
+            else
+                MsgC(warning, '[WSHL] Attempt to AddCSLua non-existant file (' .. path ..')\n')
             end
         end
 
@@ -240,7 +242,7 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
 
                         if retval then
                             baseclass.Set(classname, retval)
-                        elseif classtable.GetStored then
+                        elseif not clientTypes[classtype] then
                             baseclass.Set(classname, CLASS)
                         end
                     end)
@@ -430,52 +432,76 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
 end
 
 do
-    local sendList = {}
-
     -- I've added the ability to make it auto-hotload addon requirements (and requirements of requirements) to the hotloader.
     -- My first thought was to make it download the requirements and then initialize them one by one, however some addons require
     -- requirements to load before it. And if they are loaded after, it will error. My solution is to combine every lua file of the
     -- requirements and the main addon together and create a file bundle, and initialize them in the same way Garry's Mod does. 
     -- Some addons will have a lot of files making it unable to send it all in one net message, so I send the list in chunks 
     -- (using Xalalau's way, thank you) to combat that issue.
+
+    local bundleSendList = {}
+    local hotloadedList = {}
+
+    -- Some addons rely on certain functions to return a value that is only returned during load-time
+    -- So I detour them and make them return those values when a hotload is in process
+    local WSHL_IsLoadingAddon do
+        local entityCount = ents.GetCount()
+
+        local function Detour(meta, key, retval)
+            local originalFunction = meta[key]
+
+            if originalFunction then
+                meta[key] = function(self, ...)
+                    if WSHL_IsLoadingAddon then
+                        return retval ~= nil and retval or nil
+                    end
+
+                    return originalFunction(self, ...)
+                end
+            end
+        end
+
+        if CLIENT then
+            Detour(debug.getregistry().Player, 'IsPlayer')
+        end
+
+        Detour(ents, 'GetCount', entityCount)
+    end
     
     if SERVER then
-        local bundleLoads = {}
-
         util.AddNetworkString('wshl_send_bundle')
 
         net.Receive('wshl_send_bundle', function()
             local id = net.ReadString()
-
-            if bundleLoads[id] then return end
-
             local subid = net.ReadUInt(32)
             local strlen = net.ReadUInt(16)
             local strchunk = net.ReadData(strlen)
             local isLast = net.ReadBool()
         
-            if not sendList[id] or sendList[id].subID ~= subid then
-                sendList[id] = {subID = subid, data = ""}
+            if not bundleSendList[id] or bundleSendList[id].subID ~= subid then
+                bundleSendList[id] = {subID = subid, data = ""}
         
                 timer.Create(id, 180, 1, function()
-                    sendList[id] = nil
+                    bundleSendList[id] = nil
                 end)
             end
         
-            sendList[id].data = sendList[id].data .. strchunk
+            bundleSendList[id].data = bundleSendList[id].data .. strchunk
         
             if isLast then
-                local bundle = sendList[id].data
+                local bundle = bundleSendList[id].data
+
                 bundle = util.JSONToTable(util.Decompress(bundle))
+                WSHL_IsLoadingAddon = true
 
                 LoadAutorun(bundle)
                 LoadScripted('weapons', bundle)
                 LoadTools(bundle)
                 LoadScripted('entities', bundle)
                 HandleHooks()
-                
-                sendList[id] = nil
-                bundleLoads[id] = true
+
+                WSHL_IsLoadingAddon = false
+                bundleSendList[id] = nil
             end
         end)
     else
@@ -488,9 +514,19 @@ do
         
             for i = 1, #filebundles do
                 local filebundle = filebundles[i]
+                local wsid = filebundle.wsid
+                local files = filebundle.files
+
+                if not wsid or not files then continue end
+
+                if not hotloadedList[wsid] then
+                    hotloadedList[wsid] = true
+                else
+                    continue
+                end
         
-                for i = 1, #filebundle do
-                    local filename = filebundle[i]
+                for i = 1, #files do
+                    local filename = files[i]
                     local isGameMode = string.StartWith(filename, 'gamemodes/')
         
                     if string.StartWith(filename, 'lua/') or isGameMode then
@@ -524,44 +560,49 @@ do
             return function()
                 local str = util.TableToJSON(bundle)
                 local id, subid = util.MD5(str), SysTime()
+                local waitTime = 0.5
 
                 str = util.Compress(str)
             
-                local size, sendspeed = #str, (64000 / 1000 / 1024)
-                local total = math.ceil(size / 64000)
+                local size = #str
+                local total = math.ceil(size / 42000)
                 
                 timer.Create(id, 180, 1, function()
-                    sendList[id] = nil
+                    bundleSendList[id] = nil
                 end)
             
-                sendList[id] = subid
+                bundleSendList[id] = subid
             
                 for i = 1, total, 1 do
-                    local startbyte = 64000 * (i - 1) + 1
+                    local startbyte = 45000 * (i - 1) + 1
                     local remaining = size - (startbyte - 1)
-                    local endbyte = remaining < 64000 and (startbyte - 1) + remaining or 64000 * i
+                    local endbyte = remaining < 42000 and (startbyte - 1) + remaining or 42000 * i
                     local strchunk = string.sub(str, startbyte, endbyte)
+
+                    waitTime = waitTime + (i * 0.1)
             
-                    timer.Simple(i * sendspeed, function()
-                        if sendList[id] ~= subid then return end
+                    timer.Simple(i * 0.1, function()
+                        if bundleSendList[id] ~= subid then return end
             
                         local isLast = i == total
             
                         net.Start('wshl_send_bundle')
                         net.WriteString(id)
-                        net.WriteUInt(sendList[id], 32)
+                        net.WriteUInt(bundleSendList[id], 32)
                         net.WriteUInt(#strchunk, 16)
                         net.WriteData(strchunk, #strchunk)
                         net.WriteBool(isLast)
                         net.SendToServer()
             
                         if isLast then
-                            sendList[id] = nil
+                            bundleSendList[id] = nil
                         end
                     end)
                 end
 
-                timer.Simple(0.5, function()
+                timer.Simple(waitTime, function()
+                    WSHL_IsLoadingAddon = true
+
                     LoadAutorun(bundle)
                     LoadScripted('vgui', bundle)
                     LoadScripted('weapons', bundle)
@@ -570,7 +611,7 @@ do
                     LoadScripted('effects', bundle)
                     HandleHooks()
 
-                    --PrintTable(bundle)
+                    WSHL_IsLoadingAddon = false
 
                     timer.Simple(0.5, ReloadSpawnMenu)
                 end)
