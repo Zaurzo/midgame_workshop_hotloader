@@ -61,23 +61,24 @@ do
 
             net.Receive('wshl_broadcast_ugc', function(len, ply)
                 if ply:IsSuperAdmin() then
+                    local wsid = net.ReadString()
+
                     net.Start('wshl_broadcast_ugc')
-                    net.WriteString(net.ReadString())
+                    net.WriteString(wsid)
+
+                    if wsid == 'n' then
+                        net.WriteTable(net.ReadTable())
+                    end
+                    
                     net.Broadcast()
                 end
             end)
         else
-            net.Receive('wshl_broadcast_ugc', function()
-                local wsid = net.ReadString()
-
-                if hotloaded[wsid] then
-                    return
-                end
-
-                --Log(greenc, '[WSHL] Fetched and started hotload for addon "' .. wsid .. '" ...\n')
+            local function WSHL_HotloadAddon(wsid, callback)
+                if hotloaded[wsid] then return end
 
                 steamworks.DownloadUGC(wsid, function(_path, _file)
-                    --Log(svblue, '[WSHL] Looking for addon requirements, give me a couple seconds...\n')
+                    Log(svblue, '[WSHL] Looking for addon requirements, give me a couple seconds...\n')
 
                     steamworks.GetRequiredAddons(wsid, nil, function(requiredAddons)
                         local count = table.Count(requiredAddons)
@@ -85,7 +86,10 @@ do
 
                         assert(pass, '[WSHL] Addon failed to mount, aborting...')
 
-                        local filebundles = {files}
+                        local filebundles = {{
+                            wsid = wsid,
+                            files = files
+                        }}
 
                         if count > 0 then
                             local ids = {wsid}
@@ -95,31 +99,82 @@ do
                                 steamworks.DownloadUGC(wsid, function(path, file)
                                     local pass, files = game.MountGMA(path)
 
-                                    if pass then
-                                        filebundles[#filebundles + 1] = files
+                                    if pass and not hotloaded[wsid] then
+                                        filebundles[#filebundles + 1] = {
+                                            wsid = wsid,
+                                            files = files,
+                                        }
+                                        
                                         ids[#ids + 1] = wsid
                                     end
 
                                     mounted = mounted + 1
 
                                     if mounted >= count then
-                                        local Bundle = CreateFullBundle(filebundles)
-                                        Bundle()
+                                        if callback then
+                                            callback(filebundles)
+                                            return
+                                        else
+                                            local Bundle = CreateFullBundle(filebundles)
+                                            Bundle()
 
-                                        for i = 1, #ids do
-                                            hotloaded[ids[i]] = true
+                                            for i = 1, #ids do
+                                                hotloaded[ids[i]] = true
+                                            end
                                         end
                                     end
                                 end)
                             end
                         else
-                            local Bundle = CreateFullBundle(filebundles)
-                            Bundle()
+                            if callback then
+                                callback(filebundles)
+                                return
+                            else
+                                local Bundle = CreateFullBundle(filebundles)
+                                Bundle()
 
-                            hotloaded[wsid] = true
+                                hotloaded[wsid] = true
+                            end
                         end
                     end) 
                 end)
+            end
+
+            net.Receive('wshl_broadcast_ugc', function()
+                local wsid = net.ReadString()
+                local wsidsList = {}
+
+                if wsid == 'n' then
+                    wsidsList = net.ReadTable()
+                else
+                    if hotloaded[wsid] then
+                        return
+                    end
+                end
+
+                if #wsidsList > 0 then
+                    local fullFileBundle = {}
+                    local total = #wsidsList
+                    local count = 0
+
+                    for i = 1, total do
+                        WSHL_HotloadAddon(wsidsList[i], function(filebundles)
+                            for i = 1, #filebundles do
+                                fullFileBundle[#fullFileBundle + 1] = filebundles[i]
+                            end
+
+                            count = count + 1
+
+                            if count >= total then
+                                local Bundle = CreateFullBundle(fullFileBundle)
+                                Bundle()
+                            end
+                        end)
+                    end
+                else
+                    WSHL_HotloadAddon(wsid)
+                    Log(greenc, '[WSHL] Fetched and started hotload for addon "' .. wsid .. '" ...\n')
+                end
             end)
 
             hook.Add('GameContentChanged', 'wshl_gamecontentchanged', function()
@@ -140,8 +195,6 @@ do
     
                             unmounted[title] = nil
                             mounted[title] = true
-
-                            --print(title)
     
                             break
                         end
