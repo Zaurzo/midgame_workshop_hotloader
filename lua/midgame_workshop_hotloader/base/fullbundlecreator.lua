@@ -1,4 +1,5 @@
 AddCSLuaFile()
+setfenv(1, _G)
 
 local SERVER = SERVER
 local CLIENT = CLIENT
@@ -15,59 +16,8 @@ local initialHookList = {
     'PlayerInitialSpawn',
 }
 
-do
-    local require = require
-    local warning = Color(255, 100, 100)
-
-    local CompileFile = CompileFile
-    local AddCSLuaFile = AddCSLuaFile
-
-    local function GetPathFromFilename(filename)
-        if not string.find(filename, '/') then
-            return filename
-        end
-    
-        local path = filename
-    
-        -- This is faster than string.GetPathFromFilename
-        -- Patterns are expensive
-        for i = #filename, 0, -1 do
-            if string.sub(filename, i, i) == '/' then
-                path = string.sub(filename, 1, i)
-                break
-            end
-        end
-    
-        return path
-    end
-    
-    local function CorrectFilename(filename)
-        local fixedFilename = filename
-    
-        if string.find(filename, '/./', 1, true) then
-            for i = #filename, 0, -1 do
-                local n = i + 1
-                local b = i - 1
-    
-                if string.sub(filename, b, b) == '/' and string.sub(filename, i, i) == '.' and string.sub(filename, n, n) == '/' then
-                    fixedFilename = string.sub(filename, i + 2)
-                    break
-                end
-            end
-        elseif string.find(filename, '/../', 1, true) then
-            local pattern = '[_%w]+/%.%./'
-    
-            while string.find(filename, pattern) do
-                filename = string.gsub(filename, pattern, '')
-            end
-    
-            fixedFilename = filename
-        end
-    
-        return fixedFilename
-    end
-
-    local function GetAbsolutePath(path)
+local InitFile do
+    local function getabsolute(path)
         local filename = path
 
         for i = 2, 15 do
@@ -83,8 +33,46 @@ do
             if luaEndPos then
                 source = string.sub(source, luaEndPos + 1)
 
-                local relativePath = GetPathFromFilename(source)
-                local fixedFilePath = CorrectFilename(relativePath .. path)
+                local relativePath do
+                    relativePath = source
+
+                    if string.find(source, '/') then
+                        local path = source
+                
+                        -- This is faster than string.GetPathFromFilename
+                        -- Patterns are expensive
+                        for i = #path, 0, -1 do
+                            if string.sub(path, i, i) == '/' then
+                                path = string.sub(path, 1, i)
+                                break
+                            end
+                        end
+
+                        relativePath = path
+                    end
+                end
+
+                local fixedFilePath do
+                    fixedFilePath = relativePath .. path
+    
+                    if string.find(fixedFilePath, '/./', 1, true) then
+                        for i = #fixedFilePath, 0, -1 do
+                            local n = i + 1
+                            local b = i - 1
+                
+                            if string.sub(fixedFilePath, b, b) == '/' and string.sub(fixedFilePath, i, i) == '.' and string.sub(fixedFilePath, n, n) == '/' then
+                                fixedFilePath = string.sub(fixedFilePath, i + 2)
+                                break
+                            end
+                        end
+                    elseif string.find(fixedFilePath, '/../', 1, true) then
+                        local pattern = '[_%w]+/%.%./'
+                
+                        while string.find(fixedFilePath, pattern) do
+                            fixedFilePath = string.gsub(fixedFilePath, pattern, '')
+                        end
+                    end
+                end
 
                 if file.Read(fixedFilePath, 'LUA') then
                     filename = fixedFilePath
@@ -96,67 +84,156 @@ do
         return filename
     end
 
-    local function LuaLoader_Setup()
-        _G.CompileFile = function(path, ...)
-            local absolute = GetAbsolutePath(path)
-            local srcstr = file.Read(absolute, 'LUA')
+    local file_env = {}
 
-            if srcstr then
-                addonfiles[absolute] = true
+    local require = require
+    local warning = Color(255, 100, 100)
 
-                return CompileString(srcstr, 'lua/' .. absolute)
-            else
-                MsgC(warning, '[WSHL] Attempt to Compile non-existant file (' .. path ..')\n')
+    local CompileString = CompileString
+    local AddCSLuaFile = AddCSLuaFile
+
+    local createCall do
+        local envMeta = {
+            __index = _G,
+            __newindex = function(self, key, val)
+                _G[key] = val
             end
-        end
+        }
 
-        _G.AddCSLuaFile = function(path)
-            if not path then
-                path = string.sub(debug.getinfo(2, 'S').source, 2)
-            end
+        createCall = function(...)
+            local call = CompileString(...)
 
-            local absolute = GetAbsolutePath(path)
+            if isfunction(call) then
+                local env = {}
 
-            if file.Read(absolute, 'LUA') then
-                return AddCSLuaFile(absolute)
-            else
-                MsgC(warning, '[WSHL] Attempt to AddCSLua non-existant file (' .. path ..')\n')
-            end
-        end
-
-        _G.include = function(path)
-            local absolute = GetAbsolutePath(path)
-            local srcstr = file.Read(absolute, 'LUA')
-
-            if srcstr then
-                local ff = CompileString(srcstr, 'lua/' .. absolute)
-
-                if isfunction(ff) then
-                    addonfiles[absolute] = true
-
-                    return ff()
-                else
-                    MsgC(warning, '[WSHL] File "' .. absolute .. '" failed to compile, skipping. (Syntax Error?)\n')
+                for k, v in pairs(file_env) do
+                    env[k] = v
                 end
-            else
-                MsgC(warning, '[WSHL] Attempt to include non-existant file (' .. path ..')\n')
+
+                return setfenv(call, setmetatable(env, envMeta))
+            end
+
+            return nil
+        end
+    end
+    
+    file_env.module = function(name, ...)
+        local currentEnv = getfenv(2)
+        local _M, moduleEnv = {}, {}
+
+        local canSeeAll do
+            local loaders = {...}
+
+            if istable(package) then
+                for i = 1, #loaders do
+                    if loaders[i] == package.seeall then
+                        canSeeAll = true
+                        break
+                    end
+                end
             end
         end
 
-        _G.require = function(modulename, ...)
-            local moduledir = 'includes/modules/' .. modulename .. '.lua'
+        setmetatable(moduleEnv, {
+            __index = function(self, k, v)
+                if canSeeAll then
+                    if currentEnv[k] ~= nil then
+                        return currentEnv[k]
+                    end
+                end
 
-            if file.Read(moduledir, 'LUA') then
-                addonfiles[moduledir] = true
+                return _M[k]
+            end,
 
-                include(moduledir)
-            else
-                require(modulename, ...)
+            __newindex = function(self, k, v)
+                _M[k] = v
+            end,
+        })
+
+        setfenv(2, moduleEnv)
+
+        _G[name] = _M
+    end
+
+    file_env.AddCSLuaFile = function(path)
+        local absolute
+
+        if not path then
+            local source = debug.getinfo(2, 'S').source
+            local _, luaEnd = string.find(source, 'lua/')
+
+            local newPath = string.sub(source, luaEnd + 1)
+
+            if file.Read(newPath, 'LUA') then
+                absolute = newPath
             end
+        end
+
+        if not absolute then 
+            absolute = getabsolute(path)
+        end
+
+        if file.Read(absolute, 'LUA') then
+            return AddCSLuaFile(absolute)
+        else
+            MsgC(warning, '[WSHL] Attempt to AddCSLua non-existant file (' .. path ..')\n')
         end
     end
 
-    hook.Add('InitPostEntity', 'wshl_lualoader_setup', LuaLoader_Setup)
+    file_env.include = function(path)
+        local absolute = getabsolute(path)
+        local srcstr = file.Read(absolute, 'LUA')
+
+        if srcstr then
+            local ff = createCall(srcstr, 'lua/' .. absolute)
+
+            if ff then
+                addonfiles[absolute] = true
+
+                return ff()
+            else
+                MsgC(warning, '[WSHL] File "' .. absolute .. '" failed to compile, skipping. (Syntax Error?)\n')
+            end
+        else
+            MsgC(warning, '[WSHL] Attempt to include non-existant file (' .. path ..')\n')
+        end
+    end
+
+    file_env.CompileFile = function(path)
+        local absolute = getabsolute(path)
+        local srcstr = file.Read(absolute, 'LUA')
+
+        if srcstr then
+            addonfiles[absolute] = true
+
+            return createCall(srcstr, 'lua/' .. absolute)
+        else
+            MsgC(warning, '[WSHL] Attempt to Compile non-existant file (' .. path ..')\n')
+        end
+    end
+
+    file_env.require = function(modulename, ...)
+        local moduledir = 'includes/modules/' .. modulename .. '.lua'
+        local fileBody = file.Read(moduledir, 'LUA')
+
+        if fileBody then
+            InitFile(moduledir)
+            addonfiles[moduledir] = true
+        else
+            require(modulename, ...)
+        end
+    end
+
+    InitFile = function(filename)
+        local fileBody = file.Read(filename, 'LUA')
+
+        if not fileBody then
+            return MsgC(warning, '[WSHL] File "' .. filename .. '" does not exist.')
+        end
+
+        local call = createCall(fileBody, 'lua/' .. filename)
+        return call and call() or nil
+    end
 end
 
 local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
@@ -175,34 +252,48 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
         ['vgui'] = true,
     }
 
-    local function bundle_Find(bundle, ...)
-        local dirs = {...}
-        local subdir = bundle
-
-        for i = 1, #dirs do
-            local name = dirs[i]
-
-            if subdir[name] then
-                subdir = subdir[name]
-            else
-                subdir = nil
-                break
-            end
+    local bundle_Find do
+        local descend = function(a, b)
+            return a > b
         end
 
-        local files, dirs = {}, {}
+        bundle_Find = function(bundle, ...)
+            local dirs = {...}
+            local subdir = bundle
 
-        if subdir then
-            for k, v in pairs(subdir) do
-                if istable(v) then
-                    dirs[#dirs + 1] = k
+            for i = 1, #dirs do
+                local name = dirs[i]
+
+                if subdir[name] then
+                    subdir = subdir[name]
                 else
-                    files[#files + 1] = v
+                    subdir = nil
+                    break
                 end
             end
-        end
 
-        return files, dirs
+            local files, dirs = {}, {}
+
+            if subdir then
+                for k, v in pairs(subdir) do
+                    if istable(v) then
+                        dirs[#dirs + 1] = k
+                    else
+                        files[#files + 1] = v
+                    end
+                end
+
+                if system.IsLinux() then
+                    table.sort(files, descend)
+                    table.sort(dirs, descend)
+                else
+                    table.sort(files)
+                    table.sort(dirs)
+                end
+            end
+
+            return files, dirs
+        end
     end
 
     local function CreateClass(settings, classtype)
@@ -271,7 +362,7 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
 
             _G[gclassname].Folder = classtype .. '/' .. classname
 
-            include(classtype .. '/' .. filename)
+            InitFile(classtype .. '/' .. filename)
             RegisterClass(classtype, classname, classtable, regiscount, gclassname)
         end
 
@@ -293,14 +384,14 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
 
                 if filename == 'init.lua' then
                     if SERVER then
-                        include(fullFilename)
+                        InitFile(fullFilename)
                     elseif CLIENT and clientTypes[classtype] then
-                        include(fullFilename)
+                        InitFile(fullFilename)
                     end
                 elseif filename == 'cl_init.lua' and CLIENT then
-                    include(fullFilename)
+                    InitFile(fullFilename)
                 elseif filename == 'shared.lua' then
-                    include(fullFilename)
+                    InitFile(fullFilename)
                 end
             end
 
@@ -331,7 +422,7 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
 
             TOOL:CreateConVars()
 
-            include('weapons/gmod_tool/stools/' .. filename)
+            InitFile('weapons/gmod_tool/stools/' .. filename)
 
             SWEP.Tool[toolname] = TOOL
             
@@ -367,20 +458,20 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
         local files = bundle_Find(bundle, 'autorun')
 
         for i = 1, #files do
-            include('autorun/' .. files[i])
+            InitFile('autorun/' .. files[i])
         end
 
         if SERVER then
             files = bundle_Find(bundle, 'autorun', 'server')
 
             for i = 1, #files do
-                include('autorun/server/' .. files[i])
+                InitFile('autorun/server/' .. files[i])
             end
         else
             files = bundle_Find(bundle, 'autorun', 'client')
 
             for i = 1, #files do
-                include('autorun/client/' .. files[i])
+                InitFile('autorun/client/' .. files[i])
             end
         end
     end
@@ -462,7 +553,7 @@ do
         end
 
         if CLIENT then
-            Detour(debug.getregistry().Player, 'IsPlayer')
+            Detour(debug.getregistry().Player, 'IsPlayer', false)
         end
 
         Detour(ents, 'GetCount', entityCount)
@@ -471,7 +562,9 @@ do
     if SERVER then
         util.AddNetworkString('wshl_send_bundle')
 
-        net.Receive('wshl_send_bundle', function()
+        net.Receive('wshl_send_bundle', function(len, ply)
+            if not ply:IsListenServerHost() then return end
+
             local id = net.ReadString()
             local subid = net.ReadUInt(32)
             local strlen = net.ReadUInt(16)
@@ -514,19 +607,9 @@ do
         
             for i = 1, #filebundles do
                 local filebundle = filebundles[i]
-                local wsid = filebundle.wsid
-                local files = filebundle.files
-
-                if not wsid or not files then continue end
-
-                if not hotloadedList[wsid] then
-                    hotloadedList[wsid] = true
-                else
-                    continue
-                end
         
-                for i = 1, #files do
-                    local filename = files[i]
+                for i = 1, #filebundle do
+                    local filename = filebundle[i]
                     local isGameMode = string.StartWith(filename, 'gamemodes/')
         
                     if string.StartWith(filename, 'lua/') or isGameMode then
