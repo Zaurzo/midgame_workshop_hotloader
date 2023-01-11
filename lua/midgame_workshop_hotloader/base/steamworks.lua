@@ -3,7 +3,28 @@ setfenv(1, _G)
 
 if SERVER then return end
 
-local steamworks = {DownloadUGC = steamworks.DownloadUGC, Download = steamworks.Download}
+local steamworks = table.Copy(steamworks)
+local cacheDir = 'wshl_gma_cache'
+
+if not file.Exists(cacheDir, 'DATA') then
+    file.CreateDir(cacheDir)
+end
+
+function steamworks.DownloadWSB(wsid, callback)
+    local cache = 'data/' .. cacheDir .. '/' .. wsid .. '.txt'
+
+    if file.Exists(cache, 'GAME') then
+        return callback(cache, file.Open(cache, 'rb', 'GAME'))
+    end
+
+    steamworks.DownloadUGC(wsid, function(path, gma)
+        if path then
+            callback(path, gma)
+
+            file.Write(cacheDir .. '/' .. wsid .. '.txt', gma:Read(gma:Size()))
+        end
+    end)
+end
 
 function steamworks.GetRequiredAddons(wsid, tab, callback)
     tab = tab or {}
