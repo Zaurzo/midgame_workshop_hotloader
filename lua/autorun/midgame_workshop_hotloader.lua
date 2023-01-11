@@ -2,7 +2,6 @@ if game.IsDedicated() then return end
 -- Support for dedicated later
 
 setfenv(1, _G)
-print("[GitHub] Midgame Workshop Hotloader loaded.")
 
 local AddCSLuaFile = AddCSLuaFile
 local SERVER = SERVER
@@ -205,3 +204,5 @@ else
         net.SendToServer()
     end)
 end
+
+MsgC(Color(40, 225, 50), '[GitHub] [' .. (SERVER and 'Server' or 'Client') .. ']', Color(226, 226, 226), ' Midgame Workshop Hotloader loaded.\n')
