@@ -1,4 +1,5 @@
 AddCSLuaFile()
+setfenv(1, _G)
 
 if SERVER then return end
 
