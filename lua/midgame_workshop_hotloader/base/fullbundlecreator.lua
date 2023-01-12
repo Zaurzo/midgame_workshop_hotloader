@@ -150,8 +150,8 @@ local InitFile do
             __index = function(self, key)
                 local retval = _G[key]
                 
-                -- Give the lua functions that have include, AddCSLuaFile, etc... functions
-                -- that were created in the global environment
+                -- Give lua functions that were declared in the _G environment our custom environment
+                -- These types of functions that contain include, AddCSLuaFile, etc will use the _G functions instead of ours
                 if isfunction(retval) then
                     GiveFunctionFEnv(retval)
                 elseif istable(retval) and retval ~= _G then
