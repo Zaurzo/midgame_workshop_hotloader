@@ -164,6 +164,10 @@ else
                     if count >= total then
                         local Bundle = CreateFullBundle(fullFileBundle)
                         Bundle()
+
+                        for k, wsid in ipairs(wsidsList) do
+                            hotloaded[wsid] = true
+                        end
                     end
                 end)
             end
