@@ -93,8 +93,6 @@ local InitFile do
     local AddCSLuaFile = AddCSLuaFile
 
     local createCall do
-        local oldG = table.Copy(_G)
-
         local fenvFuncs = {}
         local fenvTables = {}
 
