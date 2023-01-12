@@ -93,8 +93,73 @@ local InitFile do
     local AddCSLuaFile = AddCSLuaFile
 
     local createCall do
+        local oldG = table.Copy(_G)
+
+        local fenvFuncs = {}
+        local fenvTables = {}
+
+        local function GiveFunctionFEnv(func)
+            if fenvFuncs[func] then return end
+
+            local fenv = getfenv(func)
+
+            if fenv == _G then
+                local env = {}
+
+                for k, v in pairs(file_env) do
+                    env[k] = v
+                end
+
+                debug.setfenv(func, setmetatable(env, {
+                    __index = _G,
+                    __newindex = function(self, k, v)
+                        _G[k] = v
+                    end,
+                }))
+            elseif istable(fenv) then
+                for k, v in pairs(file_env) do
+                    if not fenv[k] then
+                        fenv[k] = v
+                    end
+                end
+            end
+            
+            fenvFuncs[func] = true
+        end
+
+        local function recursiveAddFEnv(tbl, completedTables)
+            if fenvTables[tbl] then return end
+
+            for k, v in pairs(tbl) do
+                if isfunction(v) and debug.getinfo(v, 'S').what == 'Lua' then
+                    GiveFunctionFEnv(v)
+                elseif istable(v) then
+                    completedTables = completedTables or {}
+                    completedTables[tbl] = true
+
+                    if not completedTables[v] then
+                        recursiveAddFEnv(v, completedTables)
+                    end
+                end
+            end
+
+            fenvTables[tbl] = true
+        end
+
         local envMeta = {
-            __index = _G,
+            __index = function(self, key)
+                local retval = _G[key]
+                
+                -- Give the lua functions that have include, AddCSLuaFile, etc... functions
+                -- that were created in the global environment
+                if isfunction(retval) then
+                    GiveFunctionFEnv(retval)
+                elseif istable(retval) and retval ~= _G then
+                    recursiveAddFEnv(retval)
+                end
+
+                return retval
+            end,
             __newindex = function(self, key, val)
                 _G[key] = val
             end
@@ -109,7 +174,7 @@ local InitFile do
                 for k, v in pairs(file_env) do
                     env[k] = v
                 end
-
+    
                 return setfenv(call, setmetatable(env, envMeta))
             end
 
