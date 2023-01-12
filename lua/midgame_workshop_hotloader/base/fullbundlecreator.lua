@@ -93,73 +93,56 @@ local InitFile do
     local AddCSLuaFile = AddCSLuaFile
 
     local createCall do
-        local fenvFuncs = {}
-        local fenvTables = {}
+        do
+            local function recursiveAddFEnv(tbl, completedTables)
+                tbl = tbl or _G
 
-        local function GiveFunctionFEnv(func)
-            if fenvFuncs[func] then return end
+                for k, v in pairs(tbl) do
+                    if isfunction(v) and debug.getinfo(v, 'S').what == 'Lua' then
+                        local fenv = getfenv(v)
 
-            local fenv = getfenv(func)
-
-            if fenv == _G then
-                local env = {}
-
-                for k, v in pairs(file_env) do
-                    env[k] = v
-                end
-
-                debug.setfenv(func, setmetatable(env, {
-                    __index = _G,
-                    __newindex = function(self, k, v)
-                        _G[k] = v
-                    end,
-                }))
-            elseif istable(fenv) then
-                for k, v in pairs(file_env) do
-                    if not fenv[k] then
-                        fenv[k] = v
-                    end
-                end
-            end
+                        if fenv == _G then
+                            local env = {}
             
-            fenvFuncs[func] = true
-        end
+                            for k, v in pairs(file_env) do
+                                env[k] = v
+                            end
+            
+                            debug.setfenv(v, setmetatable(env, {
+                                __index = _G,
+                                __newindex = function(self, k, v)
+                                    _G[k] = v
+                                end,
+                            }))
+                        elseif istable(fenv) then
+                            for k, v in pairs(file_env) do
+                                local retval = fenv[k]
 
-        local function recursiveAddFEnv(tbl, completedTables)
-            if fenvTables[tbl] then return end
+                                if not retval or (isfunction(retval) and debug.getinfo(retval, 'S').what == 'C') then
+                                    fenv[k] = v
+                                end
+                            end
+                        end
+                    elseif istable(v) then
+                        completedTables = completedTables or {}
+                        completedTables[tbl] = true
 
-            for k, v in pairs(tbl) do
-                if isfunction(v) and debug.getinfo(v, 'S').what == 'Lua' then
-                    GiveFunctionFEnv(v)
-                elseif istable(v) then
-                    completedTables = completedTables or {}
-                    completedTables[tbl] = true
-
-                    if not completedTables[v] then
-                        recursiveAddFEnv(v, completedTables)
+                        if not completedTables[v] then
+                            recursiveAddFEnv(v, completedTables)
+                        end
                     end
                 end
             end
 
-            fenvTables[tbl] = true
+            -- Give lua functions that were declared in the _G environment our custom environment
+            -- These types of functions that contain include, AddCSLuaFile, etc will use the _G functions instead of ours
+            timer.Simple(5, recursiveAddFEnv)
         end
 
         local envMeta = {
-            __index = function(self, key)
-                local retval = _G[key]
-                
-                -- Give lua functions that were declared in the _G environment our custom environment
-                -- These types of functions that contain include, AddCSLuaFile, etc will use the _G functions instead of ours
-                if isfunction(retval) then
-                    GiveFunctionFEnv(retval)
-                elseif istable(retval) and retval ~= _G then
-                    recursiveAddFEnv(retval)
-                end
-
-                return retval
-            end,
-            __newindex = function(self, key, val)
-                _G[key] = val
+            __index = _G,
+            __newindex = function(self, key, value)
+                _G[key] = value
             end
         }
 
