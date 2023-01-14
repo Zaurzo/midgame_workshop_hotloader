@@ -93,52 +93,6 @@ local InitFile do
     local AddCSLuaFile = AddCSLuaFile
 
     local createCall do
-        do
-            local function recursiveAddFEnv(tbl, completedTables)
-                tbl = tbl or _G
-
-                for k, v in pairs(tbl) do
-                    if isfunction(v) and debug.getinfo(v, 'S').what == 'Lua' then
-                        local fenv = getfenv(v)
-
-                        if fenv == _G then
-                            local env = {}
-            
-                            for k, v in pairs(file_env) do
-                                env[k] = v
-                            end
-            
-                            debug.setfenv(v, setmetatable(env, {
-                                __index = _G,
-                                __newindex = function(self, k, v)
-                                    _G[k] = v
-                                end,
-                            }))
-                        elseif istable(fenv) then
-                            for k, v in pairs(file_env) do
-                                local retval = fenv[k]
-
-                                if not retval or (isfunction(retval) and debug.getinfo(retval, 'S').what == 'C') then
-                                    fenv[k] = v
-                                end
-                            end
-                        end
-                    elseif istable(v) then
-                        completedTables = completedTables or {}
-                        completedTables[tbl] = true
-
-                        if not completedTables[v] then
-                            recursiveAddFEnv(v, completedTables)
-                        end
-                    end
-                end
-            end
-
-            -- Give lua functions that were declared in the _G environment our custom environment
-            -- These types of functions that contain include, AddCSLuaFile, etc will use the _G functions instead of ours
-            timer.Simple(5, recursiveAddFEnv)
-        end
-
         local envMeta = {
             __index = _G,
             __newindex = function(self, key, value)
@@ -267,6 +221,14 @@ local InitFile do
             addonfiles[moduledir] = true
         else
             require(modulename, ...)
+        end
+    end
+
+    file_env.IncludeCS = function(path)
+        file_env.include(path)
+
+        if SERVER then
+            file_env.AddCSLuaFile(path)
         end
     end
 
