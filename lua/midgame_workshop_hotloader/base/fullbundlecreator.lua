@@ -428,9 +428,9 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
             TOOL = ToolObj:Create()
             TOOL.Mode = toolname
 
-            TOOL:CreateConVars()
-
             InitFile('weapons/gmod_tool/stools/' .. filename)
+
+            TOOL:CreateConVars()
 
             SWEP.Tool[toolname] = TOOL
             
