@@ -183,7 +183,7 @@ else
 
         local title, wsid = newest.title
 
-        if addons[title] then
+        if addons[title] or hotloaded[wsid] then
             for i = 1, #addonList do
                 local addon = addonList[i]
                 local title = addon.title
