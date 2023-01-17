@@ -5,9 +5,14 @@ if SERVER then return end
 
 local spawnmenu_control = {}
 local unmountedAddonsList = {}
+local mountedaddonslist = {}
 
-function spawnmenu_control.AddAddon(addon, hotload)
-    unmountedAddonsList[#unmountedAddonsList + 1] = addon
+function spawnmenu_control.AddAddon(addon, mounted)
+    if mounted then
+        mountedaddonslist[#mountedaddonslist + 1] = addon
+    else
+        unmountedAddonsList[#unmountedAddonsList + 1] = addon
+    end
 end
 
 do
@@ -34,7 +39,7 @@ do
     end
 
     local function PopulateWorkshopSpawnmenu(panel, tree, node)
-        local hotloaded = tree:AddNode('Hotloaded Addons', 'icon16/cut_red.png')
+        local loaded = tree:AddNode('Loaded Addons', 'icon16/cut_red.png')
         local unloaded = tree:AddNode('Unloaded Addons', 'icon16/cut.png')
 
         unloaded.DoClick = function(self)
@@ -73,17 +78,26 @@ do
             self:SetSelected(true)
         end
 
-        hotloaded.DoClick = function(self)
+        loaded.DoClick = function(self)
             if not self.ListPanel then
                 self.ListPanel = vgui.Create('ContentContainer', panel)
 
                 self.ListPanel:SetVisible(false)
                 self.ListPanel:SetTriggerSpawnlistChange(false)
 
-                for k, tab in ipairs(spawnmenu_control.steamworks.GetUGCCache()) do
-                    local wsid = tab[1]
-                    local title = tab[2]
-    
+                local list do
+                    list = {}
+
+                    for k, tab in ipairs(table.Copy(spawnmenu_control.steamworks.GetUGCCache())) do
+                        list[tab[1]] = tab[2]
+                    end
+
+                    for k, tab in ipairs(mountedaddonslist) do
+                        list[tab.wsid] = tab.title
+                    end
+                end
+
+                for wsid, title in pairs(list) do
                     if spawnmenu_control.steamworks.IsMounted(title) then
                         local author = spawnmenu_control.GetAddonAuthorName(wsid)
                         local panel = spawnmenu.CreateContentIcon('workshop_addon', self.ListPanel, {
@@ -179,7 +193,7 @@ do
             end
 
             if self.mode == 'hotloaded' then
-                menu:AddOption('Rehotload', function()
+                menu:AddOption('Reload', function()
                     net.Start('wshl_broadcast_ugc')
                     net.WriteString(self.wsid)
                     net.SendToServer()
