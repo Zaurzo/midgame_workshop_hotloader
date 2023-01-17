@@ -240,7 +240,12 @@ local InitFile do
         end
 
         local call = createCall(fileBody, 'lua/' .. filename)
-        return call and call() or nil
+
+        if call then
+            addonfiles[filename] = true
+            
+            call()
+        end
     end
 end
 
