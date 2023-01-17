@@ -6,7 +6,7 @@ if SERVER then return end
 local spawnmenu_control = {}
 local unmountedAddonsList = {}
 
-function spawnmenu_control.AddAddon(addon)
+function spawnmenu_control.AddAddon(addon, hotload)
     unmountedAddonsList[#unmountedAddonsList + 1] = addon
 end
 
@@ -34,7 +34,6 @@ do
     end
 
     local function PopulateWorkshopSpawnmenu(panel, tree, node)
-        local whats_hot = tree:AddNode('What\'s Hot', 'wshl/clock_fire16.png')
         local hotloaded = tree:AddNode('Hotloaded Addons', 'icon16/cut_red.png')
         local unloaded = tree:AddNode('Unloaded Addons', 'icon16/cut.png')
 
@@ -45,53 +44,71 @@ do
                 self.ListPanel:SetVisible(false)
                 self.ListPanel:SetTriggerSpawnlistChange(false)
 
-                self.ListPanel.Addons = {}
-            end
-
-            for k, addon in ipairs(unmountedAddonsList) do
-                local wsid = addon.wsid
-
-                if hotloadedList[wsid] or self.ListPanel.Addons[wsid] then continue end
-
-                local iconMat = 'data/midgame_workshop_hotloader/' .. wsid .. '/icon.png'
-                local author = spawnmenu_control.GetAddonAuthorName(wsid)
-                local panel = nil
-
-                do
-                    local callback1, callback2
-
-                    if not file.Exists(iconMat, 'GAME') then
-                        callback1 = function(material)
-                            if panel then
-                                panel:SetMaterial(material)
-                            end
+                for k, addon in ipairs(unmountedAddonsList) do
+                    local wsid = addon.wsid
+    
+                    if hotloadedList[wsid] then continue end
+    
+                    local author = spawnmenu_control.GetAddonAuthorName(wsid)
+                    local panel = spawnmenu.CreateContentIcon('workshop_addon', self.ListPanel, {
+                        title = addon.title,
+                        wsid = wsid,
+                        mode = 'unmounted',
+                        author = author or '<could not fetch>',
+                    })
+    
+                    spawnmenu_control.CacheAddon(wsid, function(material)
+                        if IsValid(panel) then
+                            panel.Image:SetMaterial(material)
                         end
-                    end
-
-                    if not author then
-                        callback2 = function(authorname)
-                            if panel then
-                                panel:SetTooltip('Created by ' .. authorname)
-                            end
+                    end, function(authorname)
+                        if IsValid(panel) then
+                            panel:SetTooltip('Created by ' .. authorname)
                         end
-                    end
-
-                    spawnmenu_control.CacheAddon(wsid, callback1, callback2)
+                    end)
                 end
-
-                panel = spawnmenu.CreateContentIcon('workshop_addon', self.ListPanel, {
-                    title = addon.title,
-                    wsid = wsid,
-                    material = iconMat,
-                    mode = 'unmounted',
-                    author = author or '<could not fetch>',
-                })
-
-                self.ListPanel.Addons[wsid] = true
-                --panel.unmountedNum = panel.unmountedNum + 1
             end
 
             panel:SwitchPanel(self.ListPanel)
+            self:SetSelected(true)
+        end
+
+        hotloaded.DoClick = function(self)
+            if not self.ListPanel then
+                self.ListPanel = vgui.Create('ContentContainer', panel)
+
+                self.ListPanel:SetVisible(false)
+                self.ListPanel:SetTriggerSpawnlistChange(false)
+
+                for k, tab in ipairs(spawnmenu_control.steamworks.GetUGCCache()) do
+                    local wsid = tab[1]
+                    local title = tab[2]
+    
+                    if spawnmenu_control.steamworks.IsMounted(title) then
+                        local author = spawnmenu_control.GetAddonAuthorName(wsid)
+                        local panel = spawnmenu.CreateContentIcon('workshop_addon', self.ListPanel, {
+                            title = title,
+                            wsid = wsid,
+                            mode = 'hotloaded',
+                            author = author or '<could not fetch>',
+                        })
+    
+                        spawnmenu_control.CacheAddon(wsid, function(material)
+                            if IsValid(panel) then
+                                panel.Image:SetMaterial(material)
+                            end
+                        end, function(authorname)
+                            if IsValid(panel) then
+                                panel:SetTooltip('Created by ' .. authorname)
+                            end
+                        end)
+                    end
+                end
+            end
+
+            panel:SwitchPanel(self.ListPanel)
+            unloaded:SetSelected(false)
+            self:SetSelected(true)
         end
 
         unloaded:DoClick()
@@ -99,16 +116,16 @@ do
     end
 
     local function WorkshopAddon_Constructor(container, object)
-        if not object.title or not object.material or not object.wsid then return end
+        if not object.title or not object.wsid then return end
 
         local icon = vgui.Create('ContentIcon', container)
         
         local PaintAt = icon.Image.PaintAt
         local wsid = object.wsid
 
-        icon:SetContentType('entity')
+        icon:SetContentType('workshop_addon')
         icon:SetSpawnName(object.title)
-        icon:SetMaterial(object.material)
+        --icon:SetMaterial(object.material)
         icon:SetName(object.title)
 
         icon:SetSize(192, 192)
@@ -135,9 +152,11 @@ do
         icon.DoClick = function(self)
             surface.PlaySound('ui/buttonclickrelease.wav')
 
+            if LocalPlayer() ~= Entity(1) then return end
+
             if doMultiSelect then
                 self.Image.ws_Ticked = not self.Image.ws_Ticked
-            else
+            elseif self.mode == 'unmounted' then
                 net.Start('wshl_broadcast_ugc')
                 net.WriteString(self.wsid)
                 net.SendToServer()
@@ -154,6 +173,20 @@ do
             menu:AddOption('Copy Addon Title', function()
                 SetClipboardText(self:GetSpawnName())
             end):SetIcon('icon16/page_copy.png')
+
+            if LocalPlayer() ~= Entity(1) then
+                return menu:Open()
+            end
+
+            if self.mode == 'hotloaded' then
+                menu:AddOption('Rehotload', function()
+                    net.Start('wshl_broadcast_ugc')
+                    net.WriteString(self.wsid)
+                    net.SendToServer()
+                end)
+
+                return menu:Open()
+            end
 
             menu:AddOption('Multi-Select', function()
                 local state = not doMultiSelect
@@ -187,14 +220,17 @@ do
                         end
                     end
 
-                    -- More than 50 addons at a time is absurd
-                    if #wsids > 50 or #wsids <= 0 then
+                    -- More than 100 addons at a time is absurd
+                    if #wsids > 100 or #wsids <= 0 then
                         return
                     end
+
+                    local json = util.Compress(util.TableToJSON(wsids))
                     
                     net.Start('wshl_broadcast_ugc')
                     net.WriteString('n')
-                    net.WriteTable(wsids)
+                    net.WriteUInt(#json, 16)
+                    net.WriteData(json, #json)
                     net.SendToServer()
                 end)
             end
@@ -217,46 +253,36 @@ do
         hotloaded[wsid] = true
     end
 
+    timer.Simple(0.5, function()
+        RunConsoleCommand('spawnmenu_reload')
+    end)
+
     hook.Add('PopulateWorkshopSpawnmenu', 'PopulateWorkshopSpawnmenu', PopulateWorkshopSpawnmenu)
 
     spawnmenu.AddContentType('workshop_addon', WorkshopAddon_Constructor)
     spawnmenu.AddCreationTab('Workshop', AddWorkshopTab, 'icon16/cog.png', 1000, 'Workshop Hotload Control (What\'s Hot, Unmounted Addons, Hotloaded Addons)')
-
-    timer.Simple(1, function()
-        RunConsoleCommand('spawnmenu_reload')
-    end)
 end
 
 do
-    local savePath = 'midgame_workshop_hotloader'
     local addonAuthorNames = {}
-
-    -- Clear cache
-    do
-        local _, wsids = file.Find(savePath .. '/*', 'DATA')
-
-        for i = 1, #wsids do
-            file.Delete(savePath .. '/' .. wsids[i] .. '/icon.png')
-        end
-    end
+    local addonIcons = {}
 
     function spawnmenu_control.GetAddonAuthorName(wsid)
         return addonAuthorNames[wsid]
     end
 
     function spawnmenu_control.CacheAddon(wsid, callback1, callback2)
+        if callback1 and addonIcons[wsid] then
+            callback1(addonIcons[wsid])
+            callback1 = nil
+        end
+
+        if callback2 and addonAuthorNames[wsid] then
+            callback2(addonAuthorNames[wsid])
+            callback2 = nil
+        end
+
         if not callback1 and not callback2 then return end
-
-        local cachePath = savePath .. '/' .. wsid
-        local iconPath = cachePath .. '/icon.png'
-
-        if not file.Exists(savePath, 'DATA') then
-            file.CreateDir(savePath)
-        end
-
-        if not file.Exists(cachePath, 'DATA') then
-            file.CreateDir(cachePath)
-        end
 
         steamworks.FileInfo(wsid, function(addonInfo)
             if not addonInfo then return end
@@ -264,24 +290,24 @@ do
             local authorID = addonInfo.owner
             local previewid = addonInfo.previewid
 
-            if (previewid and callback1) and not file.Exists(iconPath, 'DATA') then
+            if previewid and callback1 then
                 steamworks.Download(previewid, true, function(path)
-                    if not path then return end
+                    if not addonIcons[wsid] then
+                        local mat = AddonMaterial(path)
 
-                    local iconData = file.Read(path, 'GAME')
-
-                    if iconData then
-                        file.Write(iconPath, iconData)
-                        callback1('data/' .. iconPath)
+                        addonIcons[wsid] = mat
+                        callback1(mat)
                     end
                 end)
             end
 
-            if (authorID and callback2) and not addonAuthorNames[wsid] then
+            if authorID and callback2 then
                 steamworks.RequestPlayerInfo(authorID, function(username)
                     if not addonAuthorNames[wsid] then
-                        addonAuthorNames[wsid] = username or '<could not fetch>'
-                        callback2(addonAuthorNames[wsid])
+                        local name = username or '<could not fetch>'
+
+                        addonAuthorNames[wsid] = name
+                        callback2(name)
                     end
                 end)
             end
