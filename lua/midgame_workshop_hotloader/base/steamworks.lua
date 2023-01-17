@@ -10,24 +10,48 @@ function steamworks.IsMounted(title)
 end
 
 if CLIENT then
-    local titles = {}
+    do
+        local ugcCache = {}
 
-    function steamworks.GetUGCCache()
-        return titles
-    end
+        if not file.Exists('wshl', 'DATA') then
+            file.CreateDir('wshl')
+        else
+            local cache = file.Read('wshl/hotloaded_cache.txt', 'DATA')
 
-    function steamworks.DownloadWSB(wsid, callback)
-        steamworks.DownloadUGC(wsid, function(path, gma)
-            if path and gma then
-                callback(path, gma)
+            if cache then
+                for k, tab in ipairs(util.JSONToTable(cache)) do
+                    local title = tab[2]
 
-                local title = steamworks.GetGMATitle(gma)
+                    --print(title, steamworks.IsMounted(title))
 
-                if title then
-                    titles[#titles + 1] = {wsid, title}
+                    if steamworks.IsMounted(title) then
+                        ugcCache[#ugcCache + 1] = {tab[1], title}
+                    end
                 end
+
+                file.Write('wshl/hotloaded_cache.txt', util.TableToJSON(ugcCache))
             end
-        end)
+        end
+
+        function steamworks.GetUGCCache()
+            return ugcCache
+        end
+
+        function steamworks.DownloadWSB(wsid, callback)
+            steamworks.DownloadUGC(wsid, function(path, gma)
+                if path and gma then
+                    callback(path, gma)
+
+                    local title = steamworks.GetGMATitle(gma)
+
+                    if title then
+                        ugcCache[#ugcCache + 1] = {wsid, title}
+
+                        file.Write('wshl/hotloaded_cache.txt', util.TableToJSON(ugcCache))
+                    end
+                end
+            end)
+        end
     end
 
     function steamworks.GetRequiredAddons(wsid, tab, callback)
