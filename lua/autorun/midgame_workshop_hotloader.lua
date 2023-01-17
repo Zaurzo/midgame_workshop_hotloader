@@ -1,5 +1,4 @@
 if game.IsDedicated() then return end
--- Support for dedicated later
 
 setfenv(1, _G)
 
@@ -27,7 +26,7 @@ local mounted, unmounted, addons do
     for i = 1, #addonList do
         local addon = addonList[i]
         
-        if addon.mounted then
+        if steamworks.IsMounted(addon.title) then
             mounted[addon.title] = true
         else
             unmounted[addon.title] = true
@@ -70,13 +69,19 @@ if SERVER then
             net.WriteString(wsid)
 
             if wsid == 'n' then
-                net.WriteTable(net.ReadTable())
+                local len = net.ReadUInt(16)
+                local data = net.ReadData(len)
+
+                net.WriteUInt(len, 16)
+                net.WriteData(data, len)
             end
             
             net.Broadcast()
         end
     end)
 else
+    spawnmenu_control.steamworks = steamworks
+
     local function WSHL_HotloadAddon(wsid, callback)
         if hotloaded[wsid] then return end
 
@@ -141,7 +146,10 @@ else
         local wsidsList = {}
 
         if wsid == 'n' then
-            wsidsList = net.ReadTable()
+            local len = net.ReadUInt(16)
+            local data = net.ReadData(len)
+
+            wsidsList = util.JSONToTable(util.Decompress(data))
         else
             if hotloaded[wsid] then
                 return
