@@ -670,7 +670,7 @@ do
                     local endbyte = remaining < 42000 and (startbyte - 1) + remaining or 42000 * i
                     local strchunk = string.sub(str, startbyte, endbyte)
 
-                    waitTime = waitTime + (i * 0.1)
+                    waitTime = waitTime + (i * 0.025)
             
                     timer.Simple(i * 0.1, function()
                         if bundleSendList[id] ~= subid then return end
