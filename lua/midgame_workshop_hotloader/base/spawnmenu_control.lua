@@ -260,7 +260,7 @@ do
     hook.Add('PopulateWorkshopSpawnmenu', 'PopulateWorkshopSpawnmenu', PopulateWorkshopSpawnmenu)
 
     spawnmenu.AddContentType('workshop_addon', WorkshopAddon_Constructor)
-    spawnmenu.AddCreationTab('Workshop', AddWorkshopTab, 'icon16/cog.png', 1000, 'Workshop Hotload Control (What\'s Hot, Unmounted Addons, Hotloaded Addons)')
+    spawnmenu.AddCreationTab('Steamworks', AddWorkshopTab, 'icon16/cog.png', 1000, 'Workshop Hotload Control (What\'s Hot, Unmounted Addons, Hotloaded Addons)')
 end
 
 do
