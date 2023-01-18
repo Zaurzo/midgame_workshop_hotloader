@@ -565,179 +565,177 @@ local LoadAutorun, LoadScripted, LoadTools, HandleHooks do
     end
 end
 
-do
-    -- I've added the ability to make it auto-hotload addon requirements (and requirements of requirements) to the hotloader.
-    -- My first thought was to make it download the requirements and then initialize them one by one, however some addons require
-    -- requirements to load before it. And if they are loaded after, it will error. My solution is to combine every lua file of the
-    -- requirements and the main addon together and create a file bundle, and initialize them in the same way Garry's Mod does. 
-    -- Some addons will have a lot of files making it unable to send it all in one net message, so I send the list in chunks 
-    -- (using Xalalau's way, thank you) to combat that issue.
+-- I've added the ability to make it auto-hotload addon requirements (and requirements of requirements) to the hotloader.
+-- My first thought was to make it download the requirements and then initialize them one by one, however some addons require
+-- requirements to load before it. And if they are loaded after, it will error. My solution is to combine every lua file of the
+-- requirements and the main addon together and create a file bundle, and initialize them in the same way Garry's Mod does. 
+-- Some addons will have a lot of files making it unable to send it all in one net message, so I send the list in chunks 
+-- (using Xalalau's way, thank you) to combat that issue.
 
-    local bundleSendList = {}
-    local hotloadedList = {}
+local bundleSendList = {}
+local hotloadedList = {}
 
-    -- Some addons rely on certain functions to return a value that is only returned during load-time
-    -- So I detour them and make them return those values when a hotload is in process
-    local WSHL_IsLoadingAddon do
-        local entityCount = ents.GetCount()
+-- Some addons rely on certain functions to return a value that is only returned during load-time
+-- So I detour them and make them return those values when a hotload is in process
+local WSHL_IsLoadingAddon do
+    local entityCount = ents.GetCount()
 
-        local function Detour(meta, key, retval)
-            local originalFunction = meta[key]
+    local function Detour(meta, key, retval)
+        local originalFunction = meta[key]
 
-            if originalFunction then
-                meta[key] = function(self, ...)
-                    if WSHL_IsLoadingAddon then
-                        return retval ~= nil and retval or nil
-                    end
-
-                    return originalFunction(self, ...)
+        if originalFunction then
+            meta[key] = function(self, ...)
+                if WSHL_IsLoadingAddon then
+                    return retval ~= nil and retval or nil
                 end
+
+                return originalFunction(self, ...)
             end
         end
-
-        if CLIENT then
-            Detour(debug.getregistry().Player, 'IsPlayer', false)
-        end
-
-        Detour(ents, 'GetCount', entityCount)
     end
+
+    if CLIENT then
+        Detour(debug.getregistry().Player, 'IsPlayer', false)
+    end
+
+    Detour(ents, 'GetCount', entityCount)
+end
+
+if SERVER then
+    util.AddNetworkString('wshl_send_bundle')
+
+    net.Receive('wshl_send_bundle', function(len, ply)
+        if not ply:IsListenServerHost() then return end
+
+        local id = net.ReadString()
+        local subid = net.ReadUInt(32)
+        local strlen = net.ReadUInt(16)
+        local strchunk = net.ReadData(strlen)
+        local isLast = net.ReadBool()
     
-    if SERVER then
-        util.AddNetworkString('wshl_send_bundle')
-
-        net.Receive('wshl_send_bundle', function(len, ply)
-            if not ply:IsListenServerHost() then return end
-
-            local id = net.ReadString()
-            local subid = net.ReadUInt(32)
-            local strlen = net.ReadUInt(16)
-            local strchunk = net.ReadData(strlen)
-            local isLast = net.ReadBool()
-        
-            if not bundleSendList[id] or bundleSendList[id].subID ~= subid then
-                bundleSendList[id] = {subID = subid, data = ""}
-        
-                timer.Create(id, 180, 1, function()
-                    bundleSendList[id] = nil
-                end)
-            end
-        
-            bundleSendList[id].data = bundleSendList[id].data .. strchunk
-        
-            if isLast then
-                local bundle = bundleSendList[id].data
-
-                bundle = util.JSONToTable(util.Decompress(bundle))
-                WSHL_IsLoadingAddon = true
-
-                LoadAutorun(bundle)
-                LoadScripted('weapons', bundle)
-                LoadTools(bundle)
-                LoadScripted('entities', bundle)
-                HandleHooks()
-
-                WSHL_IsLoadingAddon = false
+        if not bundleSendList[id] or bundleSendList[id].subID ~= subid then
+            bundleSendList[id] = {subID = subid, data = ""}
+    
+            timer.Create(id, 180, 1, function()
                 bundleSendList[id] = nil
-            end
-        end)
-    else
-        local function ReloadSpawnMenu()
-            RunConsoleCommand('spawnmenu_reload')
+            end)
         end
+    
+        bundleSendList[id].data = bundleSendList[id].data .. strchunk
+    
+        if isLast then
+            local bundle = bundleSendList[id].data
 
-        return function(filebundles)
-            local bundle = {}
-        
-            for i = 1, #filebundles do
-                local filebundle = filebundles[i]
-        
-                for i = 1, #filebundle do
-                    local filename = filebundle[i]
-                    local isGameMode = string.StartWith(filename, 'gamemodes/')
-        
-                    if string.StartWith(filename, 'lua/') or isGameMode then
-                        if not isGameMode then
-                            filename = string.sub(filename, 5)
-                        end
-        
-                        local dirs = string.Split(filename, '/')
-                        local subdir = bundle
-                
-                        for i = 1, #dirs do
-                            local name = dirs[i]
-                
-                            if string.sub(name, -4) == '.lua' then
-                                subdir[#subdir + 1] = name
-                            else
-                                if not subdir[name] then
-                                    subdir[name] = {}
-                                end
-                                
-                                subdir = subdir[name]
+            bundle = util.JSONToTable(util.Decompress(bundle))
+            WSHL_IsLoadingAddon = true
+
+            LoadAutorun(bundle)
+            LoadScripted('weapons', bundle)
+            LoadTools(bundle)
+            LoadScripted('entities', bundle)
+            HandleHooks()
+
+            WSHL_IsLoadingAddon = false
+            bundleSendList[id] = nil
+        end
+    end)
+else
+    local function ReloadSpawnMenu()
+        RunConsoleCommand('spawnmenu_reload')
+    end
+
+    return function(filebundles)
+        local bundle = {}
+    
+        for i = 1, #filebundles do
+            local filebundle = filebundles[i]
+    
+            for i = 1, #filebundle do
+                local filename = filebundle[i]
+                local isGameMode = string.StartWith(filename, 'gamemodes/')
+    
+                if string.StartWith(filename, 'lua/') or isGameMode then
+                    if not isGameMode then
+                        filename = string.sub(filename, 5)
+                    end
+    
+                    local dirs = string.Split(filename, '/')
+                    local subdir = bundle
+            
+                    for i = 1, #dirs do
+                        local name = dirs[i]
+            
+                        if string.sub(name, -4) == '.lua' then
+                            subdir[#subdir + 1] = name
+                        else
+                            if not subdir[name] then
+                                subdir[name] = {}
                             end
+                            
+                            subdir = subdir[name]
                         end
                     end
                 end
             end
+        end
+    
+        -- Code adapted from
+        -- https://github.com/Xalalau/SandEv/blob/70e41697864fd2d729696d0f77599f6933c7479e/lua/sandev/libs/sh_net.lua#L10
+        -- (Thanks Xalalau Xubilozo)
+        return function()
+            local str = util.TableToJSON(bundle)
+            local id, subid = util.MD5(str), SysTime()
+
+            str = util.Compress(str)
         
-            -- Code adapted from
-            -- https://github.com/Xalalau/SandEv/blob/70e41697864fd2d729696d0f77599f6933c7479e/lua/sandev/libs/sh_net.lua#L10
-            -- (Thanks Xalalau Xubilozo)
-            return function()
-                local str = util.TableToJSON(bundle)
-                local id, subid = util.MD5(str), SysTime()
-
-                str = util.Compress(str)
+            local size = #str
+            local total = math.ceil(size / 42000)
             
-                local size = #str
-                local total = math.ceil(size / 42000)
-                
-                timer.Create(id, 180, 1, function()
-                    bundleSendList[id] = nil
+            timer.Create(id, 180, 1, function()
+                bundleSendList[id] = nil
+            end)
+        
+            bundleSendList[id] = subid
+        
+            for i = 1, total, 1 do
+                local startbyte = 45000 * (i - 1) + 1
+                local remaining = size - (startbyte - 1)
+                local endbyte = remaining < 42000 and (startbyte - 1) + remaining or 42000 * i
+                local strchunk = string.sub(str, startbyte, endbyte)
+        
+                timer.Simple(i * 0.1, function()
+                    if bundleSendList[id] ~= subid then return end
+        
+                    local isLast = i == total
+        
+                    net.Start('wshl_send_bundle')
+                    net.WriteString(id)
+                    net.WriteUInt(bundleSendList[id], 32)
+                    net.WriteUInt(#strchunk, 16)
+                    net.WriteData(strchunk, #strchunk)
+                    net.WriteBool(isLast)
+                    net.SendToServer()
+        
+                    if isLast then
+                        bundleSendList[id] = nil
+
+                        timer.Simple(0.5, function()
+                            WSHL_IsLoadingAddon = true
+        
+                            LoadAutorun(bundle)
+                            LoadScripted('vgui', bundle)
+                            LoadScripted('weapons', bundle)
+                            LoadTools(bundle)
+                            LoadScripted('entities', bundle)
+                            LoadScripted('effects', bundle)
+                            HandleHooks()
+        
+                            WSHL_IsLoadingAddon = false
+        
+                            timer.Simple(0.5, ReloadSpawnMenu)
+                        end)
+                    end
                 end)
-            
-                bundleSendList[id] = subid
-            
-                for i = 1, total, 1 do
-                    local startbyte = 45000 * (i - 1) + 1
-                    local remaining = size - (startbyte - 1)
-                    local endbyte = remaining < 42000 and (startbyte - 1) + remaining or 42000 * i
-                    local strchunk = string.sub(str, startbyte, endbyte)
-            
-                    timer.Simple(i * 0.1, function()
-                        if bundleSendList[id] ~= subid then return end
-            
-                        local isLast = i == total
-            
-                        net.Start('wshl_send_bundle')
-                        net.WriteString(id)
-                        net.WriteUInt(bundleSendList[id], 32)
-                        net.WriteUInt(#strchunk, 16)
-                        net.WriteData(strchunk, #strchunk)
-                        net.WriteBool(isLast)
-                        net.SendToServer()
-            
-                        if isLast then
-                            bundleSendList[id] = nil
-
-                            timer.Simple(0.5, function()
-                                WSHL_IsLoadingAddon = true
-            
-                                LoadAutorun(bundle)
-                                LoadScripted('vgui', bundle)
-                                LoadScripted('weapons', bundle)
-                                LoadTools(bundle)
-                                LoadScripted('entities', bundle)
-                                LoadScripted('effects', bundle)
-                                HandleHooks()
-            
-                                WSHL_IsLoadingAddon = false
-            
-                                timer.Simple(0.5, ReloadSpawnMenu)
-                            end)
-                        end
-                    end)
-                end
             end
         end
     end
