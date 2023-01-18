@@ -86,9 +86,11 @@ local InitFile do
 
     local file_env = {}
 
+    local assert = assert
     local require = require
     local warning = Color(255, 100, 100)
 
+    local ProtectedCall = ProtectedCall
     local CompileString = CompileString
     local AddCSLuaFile = AddCSLuaFile
 
@@ -116,6 +118,12 @@ local InitFile do
             return nil
         end
     end
+
+    local function ForceNoHaltError(err)
+        ProtectedCall(function()
+            assert(false, err)
+        end)
+    end
     
     file_env.module = function(name, ...)
         local currentEnv = getfenv(2)
@@ -132,6 +140,8 @@ local InitFile do
                     end
                 end
             end
+
+            moduleEnv.WSHL_IsModule = true
         end
 
         setmetatable(moduleEnv, {
@@ -176,7 +186,7 @@ local InitFile do
         if file.Read(absolute, 'LUA') then
             return AddCSLuaFile(absolute)
         else
-            MsgC(warning, '[WSHL] Attempt to AddCSLua non-existant file (' .. path ..')\n')
+            ForceNoHaltError('[WSHL] Attempt to AddCSLua non-existant file (' .. path ..')')
         end
     end
 
@@ -184,18 +194,35 @@ local InitFile do
         local absolute = getabsolute(path)
         local srcstr = file.Read(absolute, 'LUA')
 
+        local mEnv do
+            for i = 2, 6 do
+                if not debug.getinfo(i, 'f') then break end
+
+                local env = getfenv(i)
+
+                if env.WSHL_IsModule then
+                    mEnv = env
+                    break
+                end
+            end
+        end
+
         if srcstr then
             local ff = createCall(srcstr, 'lua/' .. absolute)
 
             if ff then
                 addonfiles[absolute] = true
 
+                if mEnv then
+                    setfenv(ff, mEnv)
+                end
+
                 return ff()
             else
-                MsgC(warning, '[WSHL] File "' .. absolute .. '" failed to compile, skipping. (Syntax Error?)\n')
+                ForceNoHaltError('[WSHL] File "' .. absolute .. '" failed to compile, skipping. (Syntax Error?)')
             end
         else
-            MsgC(warning, '[WSHL] Attempt to include non-existant file (' .. path ..')\n')
+            ForceNoHaltError('[WSHL] Attempt to include non-existant file (' .. path ..')')
         end
     end
 
@@ -208,7 +235,7 @@ local InitFile do
 
             return createCall(srcstr, 'lua/' .. absolute)
         else
-            MsgC(warning, '[WSHL] Attempt to Compile non-existant file (' .. path ..')\n')
+            ForceNoHaltError('[WSHL] Attempt to Compile non-existant file (' .. path ..')')
         end
     end
 
@@ -218,6 +245,7 @@ local InitFile do
 
         if fileBody then
             InitFile(moduledir)
+
             addonfiles[moduledir] = true
         else
             require(modulename, ...)
@@ -236,15 +264,17 @@ local InitFile do
         local fileBody = file.Read(filename, 'LUA')
 
         if not fileBody then
-            return MsgC(warning, '[WSHL] File "' .. filename .. '" does not exist.')
+            return ForceNoHaltError('[WSHL] File "' .. filename .. '" does not exist.')
         end
 
         local call = createCall(fileBody, 'lua/' .. filename)
 
         if call then
-            addonfiles[filename] = true
-            
             call()
+
+            addonfiles[filename] = true
+        else
+            ForceNoHaltError('[WSHL] File "' .. filename .. '" failed to compile, skipping. (Syntax Error?)')
         end
     end
 end
@@ -656,7 +686,6 @@ do
             return function()
                 local str = util.TableToJSON(bundle)
                 local id, subid = util.MD5(str), SysTime()
-                local waitTime = 0.5
 
                 str = util.Compress(str)
             
@@ -674,8 +703,6 @@ do
                     local remaining = size - (startbyte - 1)
                     local endbyte = remaining < 42000 and (startbyte - 1) + remaining or 42000 * i
                     local strchunk = string.sub(str, startbyte, endbyte)
-
-                    waitTime = waitTime + (i * 0.025)
             
                     timer.Simple(i * 0.1, function()
                         if bundleSendList[id] ~= subid then return end
@@ -692,25 +719,25 @@ do
             
                         if isLast then
                             bundleSendList[id] = nil
+
+                            timer.Simple(0.5, function()
+                                WSHL_IsLoadingAddon = true
+            
+                                LoadAutorun(bundle)
+                                LoadScripted('vgui', bundle)
+                                LoadScripted('weapons', bundle)
+                                LoadTools(bundle)
+                                LoadScripted('entities', bundle)
+                                LoadScripted('effects', bundle)
+                                HandleHooks()
+            
+                                WSHL_IsLoadingAddon = false
+            
+                                timer.Simple(0.5, ReloadSpawnMenu)
+                            end)
                         end
                     end)
                 end
-
-                timer.Simple(waitTime, function()
-                    WSHL_IsLoadingAddon = true
-
-                    LoadAutorun(bundle)
-                    LoadScripted('vgui', bundle)
-                    LoadScripted('weapons', bundle)
-                    LoadTools(bundle)
-                    LoadScripted('entities', bundle)
-                    LoadScripted('effects', bundle)
-                    HandleHooks()
-
-                    WSHL_IsLoadingAddon = false
-
-                    timer.Simple(0.5, ReloadSpawnMenu)
-                end)
             end
         end
     end
