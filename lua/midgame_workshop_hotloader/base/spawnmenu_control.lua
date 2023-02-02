@@ -139,7 +139,7 @@ do
 
         icon:SetContentType('workshop_addon')
         icon:SetSpawnName(object.title)
-        --icon:SetMaterial(object.material)
+        icon:SetMaterial('wshl/unknown_icon.png')
         icon:SetName(object.title)
 
         icon:SetSize(192, 192)
