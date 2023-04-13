@@ -6,9 +6,6 @@ if file.Exists('wshl/core.lua', 'LUA') then
     WSHL = {
         Workshop = {},
         Detours = {},
-        Language = {
-            Languages = {}
-        },
         Net = {
             Receivers = {},
         },
