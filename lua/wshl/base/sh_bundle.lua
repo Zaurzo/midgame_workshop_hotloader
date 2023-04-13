@@ -11,9 +11,13 @@ Bundle.__index = Bundle
 --   These functions will instead use the _G functions instead of ours, and will fail and error the hotload.
 --   In any case, this will only happen if the addon uses a function from a required addon NOT loaded by WSHL.
 
+local file_Read = file.Read
+
 local FileEnvMetaTable, FileEnv do
     local isfunction, istable, package, setmetatable, rawget, setfenv, getfenv
     =     isfunction, istable, package, setmetatable, rawget, setfenv, getfenv
+
+    local Hooks = hook.GetTable()
 
     FileEnv = {
         hook = {
@@ -21,25 +25,39 @@ local FileEnvMetaTable, FileEnv do
 
             Remove = function(self, event, identifier, ...)
                 local tab = self.Hooks[event]
+                local mainTab = Hooks[event]
         
                 if tab then
                     tab[identifier] = nil
                 end
+
+                if mainTab then
+                    mainTab[identifier] = nil
+                end
         
-                hook.Remove(event, identifier, ...)
+                --hook_Remove(event, identifier, ...)
             end,
         
             Add = function(self, event, identifier, callback, ...)
-                local hooks = self.Hooks
-                local tab = hooks[event]
+                local self_hooks = self.Hooks
+
+                local tab = self_hooks[event]
+                local mainTab = Hooks[event]
         
                 if not tab then
                     tab = {}
-                    hooks[event] = tab
+                    self_hooks[event] = tab
+                end
+
+                if not mainTab then
+                    mainTab = {}
+                    Hooks[event] = mainTab
                 end
         
                 tab[identifier] = callback
-                hook.Add(event, identifier, callback, ...)
+                mainTab[identifier] = callback
+
+                --hook_Add(event, identifier, callback, ...)
             end
         },
 
@@ -56,6 +74,8 @@ local FileEnvMetaTable, FileEnv do
         end,
     
         pairs = function(self, tbl, ...)
+            if not istable(tbl) then return end
+
             local WSHL_LOOKUP = rawget(tbl, 'WSHL_LOOKUP')
     
             if istable(WSHL_LOOKUP) then
@@ -67,7 +87,7 @@ local FileEnvMetaTable, FileEnv do
     
         require = function(self, modulename, ...)
             local path = 'includes/modules/' .. modulename .. '.lua'
-            local body = file.Read(path, 'LUA')
+            local body = file_Read(path, 'LUA')
     
             if body then
                 self:InitializeFile(path)
@@ -104,7 +124,7 @@ local FileEnvMetaTable, FileEnv do
                     local start, endpos = string.find(src, 'lua/')
                     local path = string.sub(src, endpos + 1)
     
-                    if file.Read(path, 'LUA') then
+                    if file_Read(path, 'LUA') then
                         absolute = path
                     end
                 end
@@ -343,7 +363,7 @@ function Bundle:GetAbsolutePath(path)
 
             local fixedPath = source .. path
 
-            if file.Read(fixedPath, 'LUA') then
+            if file_Read(fixedPath, 'LUA') then
                 path = fixedPath
                 break
             end
@@ -392,7 +412,7 @@ function Bundle:Find(...)
 end
 
 function Bundle:CompileFileBody(filepath)
-    local body = file.Read(filepath, 'LUA')
+    local body = file_Read(filepath, 'LUA')
 
     if body then
         local ff = CompileString(body, 'lua/' .. filepath)
