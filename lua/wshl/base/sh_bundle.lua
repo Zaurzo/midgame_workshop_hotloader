@@ -49,10 +49,10 @@ local FileEnvMetaTable, FileEnv do
     
         IncludeCS = function(self, path)
             if SERVER then
-                FileEnv.include(self, path)
+                FileEnv.AddCSLuaFile(self, path)
             end
     
-            FileEnv.AddCSLuaFile(self, path)
+            FileEnv.include(self, path)
         end,
     
         pairs = function(self, tbl, ...)
@@ -524,13 +524,13 @@ do
             end
         end
 
+        InitializeFolder('autorun')
+
         if SERVER then
             InitializeFolder('autorun', 'server')
         else
             InitializeFolder('autorun', 'client')
         end
-
-        InitializeFolder('autorun')
     end
 
     function Bundle:InitializeScriptedClasses(classtype)
@@ -553,27 +553,27 @@ do
             for i = 1, #dirs do
                 local classname = dirs[i]
 
-                if classtype == 'weapons' and classname == 'gmod_tool' then continue end
+                if classtype ~= 'weapons' or classname ~= 'gmod_tool' then
+                    local files = self:DeepFind('lua', classtype, classname)
+                    local tblname, basetable, registercount = CreateNewClass(classtype)
 
-                local files = self:DeepFind('lua', classtype, classname)
-                local tblname, basetable, registercount = CreateNewClass(classtype)
+                    _G[tblname].Folder = classtype .. '/' .. classname
 
-                _G[tblname].Folder = classtype .. '/' .. classname
+                    for i = 1, #files do
+                        local filename = files[i]
+                        local path = classtype .. '/' .. classname .. '/' .. filename
 
-                for i = 1, #files do
-                    local filename = files[i]
-                    local path = classtype .. '/' .. classname .. '/' .. filename
-
-                    if filename == 'init.lua' and (SERVER or IsClassClient(classtype)) then
-                        self:InitializeFile(path)
-                    elseif filename == 'cl_init.lua' and CLIENT then
-                        self:InitializeFile(path)
-                    elseif filename == 'shared.lua' then
-                        self:InitializeFile(path)
+                        if filename == 'init.lua' and (SERVER or IsClassClient(classtype)) then
+                            self:InitializeFile(path)
+                        elseif filename == 'cl_init.lua' and CLIENT then
+                            self:InitializeFile(path)
+                        elseif filename == 'shared.lua' then
+                            self:InitializeFile(path)
+                        end
                     end
-                end
 
-                RegisterNewClass(classtype, classname, tblname, basetable, registercount)
+                    RegisterNewClass(classtype, classname, tblname, basetable, registercount)
+                end
             end
         end
     end
