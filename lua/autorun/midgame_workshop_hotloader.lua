@@ -17,7 +17,9 @@ if file.Exists('wshl/core.lua', 'LUA') then
     }
 
     local function Include(filename)
-        AddCSLuaFile(filename)
+        if SERVER then
+            AddCSLuaFile(filename)
+        end
 
         if file.Exists(filename, 'LUA') then
             include(filename)
