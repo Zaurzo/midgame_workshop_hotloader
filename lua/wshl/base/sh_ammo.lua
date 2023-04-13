@@ -152,12 +152,13 @@ timer.Simple(0.25, function()
     do
         local Weapon = _R.Weapon
         local IsScripted = Weapon.IsScripted
+        local IsValid = Entity.IsValid
 
         local function WSHL_QuickDetour(key, ammoTabKey)
             WSHL_Detour(Weapon, key, function(self)
                 local tab = self[ammoTabKey]
 
-                if IsScripted(self) and (tab and tab.Ammo) then
+                if (IsValid(self) and IsScripted(self)) and (tab and tab.Ammo) then
                     return isWSHLAmmo[tab.Ammo]
                 end
             end)
