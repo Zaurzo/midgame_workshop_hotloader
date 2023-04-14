@@ -88,6 +88,10 @@ for i = 1, #addons do
     local title = addon.title
     local wsid = addon.wsid
 
+    if not WSHL.VersionDate and wsid == '2885846408' then
+        WSHL.VersionDate = addon.updated
+    end
+
     if WSHL.Workshop:IsMounted(title) then
         WSHL.Addons.Mounted[wsid] = true
     else
