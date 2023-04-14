@@ -418,7 +418,7 @@ function Bundle:CompileFileBody(filepath)
         local ff = CompileString(body, 'lua/' .. filepath)
         
         if not ff then
-            self:Error('File ' .. filepath .. ' failed to Compile. (Syntax Error?)', true)
+            self:AddError('File ' .. filepath .. ' failed to Compile. (Syntax Error?)')
         else
             return {
                 bundle = self,
@@ -428,9 +428,7 @@ function Bundle:CompileFileBody(filepath)
                     local results = { pcall(self.func) }
     
                     if not results[1] then
-                        local realm = SERVER and '[SERVER ERROR] ' or '[CLIENT ERROR] '
-
-                        return table.insert(self.bundle.Errors, realm .. results[2])
+                        return self.bundle:AddError(results[2])
                     end
 
                     return unpack(results, 2)
@@ -438,7 +436,9 @@ function Bundle:CompileFileBody(filepath)
             }
         end
     else
-        self:Error('Attempt to Compile non-existent file. (' .. filepath .. ')', true)
+        self:AddError('Attempt to Compile non-existent file. (' .. filepath .. ')')
+
+        self.NonExistentFileEncountered = true
     end
 end
 
@@ -470,10 +470,15 @@ function Bundle:InitializeFile(filepath)
     end
 end
 
-function Bundle:Error(msg)
+function Bundle:AddError(msg)
+    --local realm = SERVER and '[SERVER ERROR] ' or '[CLIENT ERROR] '
+    table.insert(self.Errors, msg)
+    
+    --[[
     ProtectedCall(function() 
         error('[WSHL] [' .. self.Name .. '] ' .. msg)
     end)
+    --]]
 end
 
 do
@@ -622,7 +627,7 @@ do
                 for k, ply in ipairs(players) do
                     local toolgun = ply:GetWeapon('gmod_tool')
 
-                    if IsValid(toolgun) then
+                    if IsValid(toolgun) and toolgun.Tool then
                         local tool = table.Copy(TOOL)
 
                         tool.SWEP = toolgun
@@ -714,34 +719,31 @@ function Bundle:Initialize()
     end
 
     timer.Simple(1, function()
+        local realm = SERVER and 'SERVER' or 'CLIENT'
+        local realmTag = '[' .. realm .. ']'
+
         if CLIENT then
             RunConsoleCommand('spawnmenu_reload')
         end
 
         if self.Errors[1] ~= nil then
+            MsgC(Color(185, 185, 185), '\n' .. realmTag .. ' Bundle Errors Found:\n\n')
+
             local errors = table.concat(self.Errors, '\n')
-            local sendname = '[' .. self.Name .. ']\n'
-            local sendstack = errors
 
-            if #sendname > 254 then
-                sendstack = sendname .. '\n' .. sendstack
-                sendname = ''
-            end
-
-            if #sendstack > 1999 then
-                sendstack = string.sub(sendstack, 1, 1996) .. '...'
-            end
+            local sendname = string.sub(realmTag .. ' [' .. self.Name .. ']\n', 1, 500)
+            local sendstack = string.sub(errors, 1, 5000)
 
             -- Send the errors that were found during the hotload to gerror
             -- If will be truncated if it's too long, though I think it will be enough for me to get the idea of what's wrong.
             http.Post('https://gerror.xalalau.com/add.php', {
-                realm = SERVER and 'SERVER' or 'CLIENT',
+                realm = realm,
                 databaseName = 'midgame_workshop_hotloader',
                 msg = sendname,
                 stack = sendstack,
                 map = game.GetMap(),
                 quantity = '1',
-                versionDate = '1680675347'
+                versionDate = WSHL.VersionDate
             })
 
             MsgC(Color(150, 250, 255), errors .. '\n')
