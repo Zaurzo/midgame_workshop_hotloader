@@ -437,8 +437,6 @@ function Bundle:CompileFileBody(filepath)
         end
     else
         self:AddError('Attempt to Compile non-existent file. (' .. filepath .. ')')
-
-        self.NonExistentFileEncountered = true
     end
 end
 
