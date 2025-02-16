@@ -149,7 +149,7 @@ function WSHL:AssertType(nparam, value, expectedType, level)
     local msg = "bad argument #%s to '%s' (%s expected, got %s)"
     local name = debug.getinfo(level, 'n').name or '?'
 
-    return error(Format(msg, nparam, name, expectedType, tn), level + 1)
+    error(Format(msg, nparam, name, expectedType, tn), level + 1)
 end
 
 function WSHL:GetServerHost()
