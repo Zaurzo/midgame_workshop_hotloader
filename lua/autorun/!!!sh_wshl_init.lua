@@ -1,3 +1,5 @@
+if game.IsDedicated() then return end
+
 WSHL = WSHL or {}
 
 include('wshl/libs/sh_bundle.lua')

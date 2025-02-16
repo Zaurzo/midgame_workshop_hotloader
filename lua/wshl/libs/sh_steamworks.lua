@@ -3,27 +3,10 @@ AddCSLuaFile()
 WSHL.Steamworks = WSHL.Steamworks or {}
 
 file.CreateDir('wshl')
+file.CreateDir('wshl/cache')
 
-sql.Query('CREATE TABLE IF NOT EXISTS wshl_stored ( wsid TEXT NOT NULL PRIMARY KEY, data TEXT );')
-
-local function getGMADataInternal(wsid)
-    local data = sql.QueryValue("SELECT data FROM wshl_stored WHERE wsid = " .. SQLStr(wsid))
-    if not data then return end
-
-    local lines = string.Explode('\n', data)
-
-    local path = lines[1]
-    local time = lines[2]
-    local title = string.sub(data, #path + #time + 3)
-
-    return path, title, tonumber(time)
-end
-
-local function storeGMADataInternal(wsid, path, title)
-    local data = SQLStr(path .. '\n' .. os.time() .. '\n' .. title)
-    local query = "INSERT OR REPLACE INTO wshl_stored ( wsid, data ) VALUES ( " ..  SQLStr(wsid) .. ", " .. data .. " )"
-
-    sql.Query(query)
+local function cacheGMAPath(wsid, path)
+    file.Write('wshl/cache/' .. wsid .. '.dat', path)
 end
 
 function WSHL.Steamworks:GetTitle(gma)
@@ -60,23 +43,19 @@ function WSHL.Steamworks:GetTitle(gma)
     return title
 end
 
-function WSHL.Steamworks:GetGMA(wsid)
+function WSHL.Steamworks:GetGMAPath(wsid)
     local cachePath = 'cache/workshop/' .. wsid .. '.gma'
-    local gmaPath, lastUpdated, gmaTitle
+    local gmaPath, lastUpdated
 
     if file.Exists(cachePath, 'MOD') then
         gmaPath = cachePath
         lastUpdated = file.Time(gmaPath, 'MOD')
-
-        local gma = file.Open(gmaPath, 'rb', 'MOD')
-        assert(gma, 'how did this even happen')
-
-        gmaTitle = self:GetTitle(gma)
     else
-        cachePath, gmaTitle, lastUpdated = getGMADataInternal(wsid)
+        cachePath = 'wshl/cache/' .. wsid .. '.dat'
+        gmaPath = file.Read(cachePath, 'DATA')
 
-        if cachePath then
-            gmaPath = cachePath
+        if gmaPath then
+            lastUpdated = file.Time(cachePath, 'DATA')
         else
             for k, addon in ipairs(engine.GetAddons()) do
                 if addon.wsid == wsid and addon.file then
@@ -100,40 +79,36 @@ function WSHL.Steamworks:GetGMA(wsid)
     if steamworks.DownloadUGC then
         function downloadAddon(path, gma)
             if path and gma then
-                gmaPath = path
-                gmaTitle = self:GetTitle(gma)
-
                 gma:Close()
 
-                storeGMADataInternal(wsid, path, gmaTitle)
+                gmaPath = path
+
+                cacheGMAPath(wsid, path)
             end
 
-            return coroutine.resume(thread, gmaPath, gmaTitle, lastUpdated)
+            return coroutine.resume(thread, gmaPath)
         end
     end
 
-    local function resume()
-        if not gmaTitle and downloadAddon then
-            steamworks.DownloadUGC(wsid, downloadAddon)
-        else
-            return coroutine.resume(thread, gmaPath, gmaTitle, lastUpdated)
-        end
-    end
-
+    -- Check if we have an older version, and re-download
     if gmaPath then
         steamworks.FileInfo(wsid, function(ugcInfo)
             if not ugcInfo then
-                return resume()
+                return coroutine.resume(thread, gmaPath)
             end
 
             if downloadAddon and ugcInfo.updated > lastUpdated then
                 steamworks.DownloadUGC(wsid, downloadAddon)
             else
-                return resume()
+                return coroutine.resume(thread, gmaPath)
             end
         end)
-    elseif downloadAddon then
-        steamworks.DownloadUGC(wsid, downloadAddon)
+    else
+        if downloadAddon then
+            steamworks.DownloadUGC(wsid, downloadAddon)
+        else
+            return gmaPath
+        end
     end
 
     return coroutine.yield()
@@ -186,7 +161,7 @@ end
 
 function WSHL.Steamworks:Mount(wsid, path)
     if not path then
-        path = self:GetGMA(wsid)
+        path = self:GetGMAPath(wsid)
     end
 
     if not path then
@@ -205,7 +180,7 @@ function WSHL.Steamworks:Mount(wsid, path)
 
         steamworks.DownloadUGC(wsid, function(newPath, gma)
             if newPath and gma then
-                storeGMADataInternal(wsid, newPath, self:GetTitle(gma))
+                cacheGMAPath(wsid, newPath)
 
                 gma:Close()
 
