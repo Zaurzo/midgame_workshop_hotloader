@@ -26,7 +26,9 @@ end
 
 function WSHL.Bundle:IsLoadable(filePath)
     for k, path in ipairs(whitelistedPaths) do
-        if string.match(filePath, path) then
+        local fileName = select(-1, string.match(filePath, path))
+
+        if fileName and not string.find(fileName, '/', 1, true) then
             return true
         end
     end
