@@ -12,7 +12,6 @@ local whitelistedPaths = {
     'lua/weapons/*.lua',
     'lua/weapons/*/*.lua',
     'lua/vgui/*.lua',
-    'lua/weapons/*.lua',
     'lua/postprocess/*.lua',
     'lua/effects/*.lua',
     'lua/effects/*/init.lua',
@@ -26,9 +25,9 @@ end
 
 function WSHL.Bundle:IsLoadable(filePath)
     for k, path in ipairs(whitelistedPaths) do
-        local fileName = select(-1, string.match(filePath, path))
+        local match = string.match(filePath, path)
 
-        if fileName and not string.find(fileName, '/', 1, true) then
+        if match and not string.find(match, '/', 1, true) then
             return true
         end
     end
